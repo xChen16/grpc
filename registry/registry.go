@@ -9,12 +9,12 @@ import (
 	"time"
 )
 
-// Registry is a simple register center, provide following functions.
+// Registry is a simple register center.
 // add a server and receive heartbeat to keep it alive.
 // returns all alive servers and delete dead servers sync simultaneously.
 type Registry struct {
 	timeout time.Duration
-	mu      sync.Mutex // protect following
+	mu      sync.Mutex
 	servers map[string]*ServerItem
 }
 
@@ -45,7 +45,7 @@ func (r *Registry) putServer(addr string) {
 	if s == nil {
 		r.servers[addr] = &ServerItem{Addr: addr, start: time.Now()}
 	} else {
-		s.start = time.Now() // if exists, update start time to keep alive
+		s.start = time.Now() // if exists, update start time to keepalive
 	}
 }
 
@@ -64,7 +64,7 @@ func (r *Registry) aliveServers() []string {
 	return alive
 }
 
-// Runs at /_geerpc_/registry
+// Runs at /_grpc_/registry
 func (r *Registry) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	switch req.Method {
 	case "GET":
