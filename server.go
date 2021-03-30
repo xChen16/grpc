@@ -3,6 +3,7 @@ package grpc
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -30,6 +31,7 @@ var DefaultOption = &Option{
 	ConnectTimeout: time.Second * 10,
 }
 
+// Server represents an RPC Server.
 type Server struct {
 	serviceMap sync.Map
 }
@@ -42,9 +44,8 @@ func NewServer() *Server {
 // DefaultServer is the default instance of *Server.
 var DefaultServer = NewServer()
 
-// Accept accepts connections on the listener and serves requests
-// for each incoming connection.
-
+// ServeConn runs the server on a single connection.
+// ServeConn blocks, serving the connection until the client hangs up.
 func (server *Server) ServeConn(conn io.ReadWriteCloser) {
 	defer func() { _ = conn.Close() }()
 	var opt Option
@@ -61,13 +62,13 @@ func (server *Server) ServeConn(conn io.ReadWriteCloser) {
 		log.Printf("rpc server: invalid codec type %s", opt.CodecType)
 		return
 	}
-	server.serveCodec(f(conn))
+	server.serveCodec(f(conn), &opt)
 }
 
 // invalidRequest is a placeholder for response argv when error occurs
 var invalidRequest = struct{}{}
 
-func (server *Server) serveCodec(cc codec.Codec) {
+func (server *Server) serveCodec(cc codec.Codec, opt *Option) {
 	sending := new(sync.Mutex) // make sure to send a complete response
 	wg := new(sync.WaitGroup)  // wait until all request are handled
 	for {
@@ -81,7 +82,7 @@ func (server *Server) serveCodec(cc codec.Codec) {
 			continue
 		}
 		wg.Add(1)
-		go server.handleRequest(cc, req, sending, wg)
+		go server.handleRequest(cc, req, sending, wg, opt.HandleTimeout)
 	}
 	wg.Wait()
 	_ = cc.Close()
@@ -132,7 +133,6 @@ func (server *Server) readRequest(cc codec.Codec) (*request, error) {
 		return nil, err
 	}
 	req := &request{h: h}
-	// TODO: now we don't know the type of request argv
 	req.svc, req.mtype, err = server.findService(h.ServiceMethod)
 	if err != nil {
 		return req, err
@@ -149,11 +149,6 @@ func (server *Server) readRequest(cc codec.Codec) (*request, error) {
 		log.Println("rpc server: read body err:", err)
 		return req, err
 	}
-	// day 1, just suppose it's string
-	/* req.argv = reflect.New(reflect.TypeOf(""))
-	if err = cc.ReadBody(req.argv.Interface()); err != nil {
-		log.Println("rpc server: read argv err:", err)
-	} */
 	return req, nil
 }
 
@@ -165,30 +160,39 @@ func (server *Server) sendResponse(cc codec.Codec, h *codec.Header, body interfa
 	}
 }
 
-/* func (server *Server) handleRequest(cc codec.Codec, req *request, sending *sync.Mutex, wg *sync.WaitGroup) {
-	// TODO, should call registered rpc methods to get the right replyv
-	// day 1, just print argv and send a hello message
+func (server *Server) handleRequest(cc codec.Codec, req *request, sending *sync.Mutex, wg *sync.WaitGroup, timeout time.Duration) {
 	defer wg.Done()
-	err := req.svc.call(req.mtype, req.argv, req.replyv)
-	if err != nil {
-		req.h.Error = err.Error()
-		server.sendResponse(cc, req.h, invalidRequest, sending)
-		return
-	}
-	server.sendResponse(cc, req.h, req.replyv.Interface(), sending)
+	called := make(chan struct{})
+	sent := make(chan struct{})
+	go func() {
+		err := req.svc.call(req.mtype, req.argv, req.replyv)
+		called <- struct{}{}
+		if err != nil {
+			req.h.Error = err.Error()
+			server.sendResponse(cc, req.h, invalidRequest, sending)
+			sent <- struct{}{}
+			return
+		}
+		server.sendResponse(cc, req.h, req.replyv.Interface(), sending)
+		sent <- struct{}{}
+	}()
 
-} */
-func (server *Server) handleRequest(cc codec.Codec, req *request, sending *sync.Mutex, wg *sync.WaitGroup) {
-	defer wg.Done()
-	err := req.svc.call(req.mtype, req.argv, req.replyv)
-	if err != nil {
-		req.h.Error = err.Error()
-		server.sendResponse(cc, req.h, invalidRequest, sending)
+	if timeout == 0 {
+		<-called
+		<-sent
 		return
 	}
-	server.sendResponse(cc, req.h, req.replyv.Interface(), sending)
+	select {
+	case <-time.After(timeout):
+		req.h.Error = fmt.Sprintf("rpc server: request handle timeout: expect within %s", timeout)
+		server.sendResponse(cc, req.h, invalidRequest, sending)
+	case <-called:
+		<-sent
+	}
 }
 
+// Accept accepts connections on the listener and serves requests
+// for each incoming connection.
 func (server *Server) Accept(lis net.Listener) {
 	for {
 		conn, err := lis.Accept()
@@ -199,8 +203,17 @@ func (server *Server) Accept(lis net.Listener) {
 		go server.ServeConn(conn)
 	}
 }
+
+// Accept accepts connections on the listener and serves requests
+// for each incoming connection.
 func Accept(lis net.Listener) { DefaultServer.Accept(lis) }
 
+// Register publishes in the server the set of methods of the
+// receiver value that satisfy the following conditions:
+//	- exported method of exported type
+//	- two arguments, both of exported type
+//	- the second argument is a pointer
+//	- one return value, of type error
 func (server *Server) Register(rcvr interface{}) error {
 	s := newService(rcvr)
 	if _, dup := server.serviceMap.LoadOrStore(s.name, s); dup {
@@ -209,12 +222,13 @@ func (server *Server) Register(rcvr interface{}) error {
 	return nil
 }
 
+// Register publishes the receiver's methods in the DefaultServer.
 func Register(rcvr interface{}) error { return DefaultServer.Register(rcvr) }
 
 const (
-	connected        = "200 Connected to GRPC"
+	connected        = "200 Connected to RPC"
 	defaultRPCPath   = "/_gprc_"
-	defaultDebugPath = "/debug/grpc"
+	defaultDebugPath = "/debug/geerpc"
 )
 
 // ServeHTTP implements an http.Handler that answers RPC requests.
@@ -234,11 +248,12 @@ func (server *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	server.ServeConn(conn)
 }
 
-// HandleHTTP registers an HTTP handler for RPC messages on rpcPath.
+// HandleHTTP registers an HTTP handler for RPC messages on rpcPath,
+// and a debugging handler on debugPath.
 // It is still necessary to invoke http.Serve(), typically in a go statement.
 func (server *Server) HandleHTTP() {
 	http.Handle(defaultRPCPath, server)
-	http.Handle(defaultDebugPath, debugHTTP{server})
+	//http.Handle(defaultDebugPath, debugHTTP{server})
 	log.Println("rpc server debug path:", defaultDebugPath)
 }
 

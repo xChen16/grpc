@@ -17,6 +17,7 @@ import (
 	"github.com/grpc/codec"
 )
 
+// Call represents an active RPC.
 type Call struct {
 	Seq           uint64
 	ServiceMethod string      // format "<service>.<method>"
@@ -30,6 +31,10 @@ func (call *Call) done() {
 	call.Done <- call
 }
 
+// Client represents an RPC Client.
+// There may be multiple outstanding Calls associated
+// with a single Client, and a Client may be used by
+// multiple goroutines simultaneously.
 type Client struct {
 	cc       codec.Codec
 	opt      *Option
@@ -176,7 +181,7 @@ func (client *Client) Go(serviceMethod string, args, reply interface{}, done cha
 // Call invokes the named function, waits for it to complete,
 // and returns its error status.
 func (client *Client) Call(ctx context.Context, serviceMethod string, args, reply interface{}) error {
-	call := <-client.Go(serviceMethod, args, reply, make(chan *Call, 1)).Done
+	call := client.Go(serviceMethod, args, reply, make(chan *Call, 1))
 	select {
 	case <-ctx.Done():
 		client.removeCall(call.Seq)
@@ -184,7 +189,6 @@ func (client *Client) Call(ctx context.Context, serviceMethod string, args, repl
 	case call := <-call.Done:
 		return call.Error
 	}
-	/* return call.Error */
 }
 
 func parseOptions(opts ...*Option) (*Option, error) {
@@ -217,25 +221,6 @@ func NewClient(conn net.Conn, opt *Option) (*Client, error) {
 		return nil, err
 	}
 	return newClientCodec(f(conn), opt), nil
-}
-
-func NewHTTPClient(conn net.Conn, opt *Option) (*Client, error) {
-	_, _ = io.WriteString(conn, fmt.Sprintf("CONNECT %s HTTP/1.0\n\n", defaultRPCPath))
-
-	// Require successful HTTP response
-	// before switching to RPC protocol.
-	resp, err := http.ReadResponse(bufio.NewReader(conn), &http.Request{Method: "CONNECT"})
-	if err == nil && resp.Status == connected {
-		return NewClient(conn, opt)
-	}
-	if err == nil {
-		err = errors.New("unexpected HTTP response: " + resp.Status)
-	}
-	return nil, err
-}
-
-func DialHTTP(network, address string, opts ...*Option) (*Client, error) {
-	return dialTimeout(NewHTTPClient, network, address, opts...)
 }
 
 func newClientCodec(cc codec.Codec, opt *Option) *Client {
@@ -287,29 +272,38 @@ func dialTimeout(f newClientFunc, network, address string, opts ...*Option) (cli
 		return result.client, result.err
 	}
 }
+
+// Dial connects to an RPC server at the specified network address
 func Dial(network, address string, opts ...*Option) (*Client, error) {
 	return dialTimeout(NewClient, network, address, opts...)
 }
 
-// Dial connects to an RPC server at the specified network address
-/* func Dial(network, address string, opts ...*Option) (client *Client, err error) {
-	opt, err := parseOptions(opts...)
-	if err != nil {
-		return nil, err
+// NewHTTPClient new a Client instance via HTTP as transport protocol
+func NewHTTPClient(conn net.Conn, opt *Option) (*Client, error) {
+	_, _ = io.WriteString(conn, fmt.Sprintf("CONNECT %s HTTP/1.0\n\n", defaultRPCPath))
+
+	// Require successful HTTP response
+	// before switching to RPC protocol.
+	resp, err := http.ReadResponse(bufio.NewReader(conn), &http.Request{Method: "CONNECT"})
+	if err == nil && resp.Status == connected {
+		return NewClient(conn, opt)
 	}
-	conn, err := net.Dial(network, address)
-	if err != nil {
-		return nil, err
+	if err == nil {
+		err = errors.New("unexpected HTTP response: " + resp.Status)
 	}
-	// close the connection if client is nil
-	defer func() {
-		if err != nil {
-			_ = conn.Close()
-		}
-	}()
-	return NewClient(conn, opt)
+	return nil, err
 }
-*/
+
+// DialHTTP connects to an HTTP RPC server at the specified network address
+// listening on the default HTTP RPC path.
+func DialHTTP(network, address string, opts ...*Option) (*Client, error) {
+	return dialTimeout(NewHTTPClient, network, address, opts...)
+}
+
+// XDial calls different functions to connect to a RPC server
+// according the first parameter rpcAddr.
+// rpcAddr is a general format (protocol@addr) to represent a rpc server
+// eg, http@10.0.0.1:7001, tcp@10.0.0.1:9999, unix@/tmp/geerpc.sock
 func XDial(rpcAddr string, opts ...*Option) (*Client, error) {
 	parts := strings.Split(rpcAddr, "@")
 	if len(parts) != 2 {
