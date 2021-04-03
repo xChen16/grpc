@@ -10,8 +10,6 @@ import (
 )
 
 // Registry is a simple register center.
-// add a server and receive heartbeat to keep it alive.
-// returns all alive servers and delete dead servers sync simultaneously.
 type Registry struct {
 	timeout time.Duration
 	mu      sync.Mutex

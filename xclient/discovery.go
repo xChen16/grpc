@@ -25,7 +25,6 @@ type Discovery interface {
 var _ Discovery = (*MultiServersDiscovery)(nil)
 
 // MultiServersDiscovery is a discovery for multi servers without a registry center
-// user provides the server addresses explicitly instead
 type MultiServersDiscovery struct {
 	r       *rand.Rand   // generate random number
 	mu      sync.RWMutex // protect following
