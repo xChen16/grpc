@@ -45,7 +45,6 @@ func NewServer() *Server {
 var DefaultServer = NewServer()
 
 // ServeConn runs the server on a single connection.
-// ServeConn blocks, serving the connection until the client hangs up.
 func (server *Server) ServeConn(conn io.ReadWriteCloser) {
 	defer func() { _ = conn.Close() }()
 	var opt Option
@@ -208,12 +207,6 @@ func (server *Server) Accept(lis net.Listener) {
 // for each incoming connection.
 func Accept(lis net.Listener) { DefaultServer.Accept(lis) }
 
-// Register publishes in the server the set of methods of the
-// receiver value that satisfy the following conditions:
-//	- exported method of exported type
-//	- two arguments, both of exported type
-//	- the second argument is a pointer
-//	- one return value, of type error
 func (server *Server) Register(rcvr interface{}) error {
 	s := newService(rcvr)
 	if _, dup := server.serviceMap.LoadOrStore(s.name, s); dup {
@@ -249,8 +242,7 @@ func (server *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 }
 
 // HandleHTTP registers an HTTP handler for RPC messages on rpcPath,
-// and a debugging handler on debugPath.
-// It is still necessary to invoke http.Serve(), typically in a go statement.
+
 func (server *Server) HandleHTTP() {
 	http.Handle(defaultRPCPath, server)
 	//http.Handle(defaultDebugPath, debugHTTP{server})
