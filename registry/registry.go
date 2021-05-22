@@ -66,10 +66,10 @@ func (r *Registry) aliveServers() []string {
 func (r *Registry) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	switch req.Method {
 	case "GET":
-		// keep it simple, server is in req.Header
+
 		w.Header().Set("X-Grpc-Servers", strings.Join(r.aliveServers(), ","))
 	case "POST":
-		// keep it simple, server is in req.Header
+
 		addr := req.Header.Get("X-Grpc-Server")
 		if addr == "" {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -81,7 +81,7 @@ func (r *Registry) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-// HandleHTTP registers an HTTP handler for Registry messages on registryPath
+// HandleHTTP registryPath
 func (r *Registry) HandleHTTP(registryPath string) {
 	http.Handle(registryPath, r)
 	log.Println("rpc registry path:", registryPath)
@@ -91,12 +91,9 @@ func HandleHTTP() {
 	DefaultRegister.HandleHTTP(defaultPath)
 }
 
-// Heartbeat send a heartbeat message every once in a while
-// it's a helper function for a server to register or send heartbeat
 func Heartbeat(registry, addr string, duration time.Duration) {
 	if duration == 0 {
 		// make sure there is enough time to send heart beat
-		// before it's removed from registry
 		duration = defaultTimeout - time.Duration(1)*time.Minute
 	}
 	var err error

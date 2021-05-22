@@ -27,7 +27,6 @@ func (xc *XClient) Close() error {
 	xc.mu.Lock()
 	defer xc.mu.Unlock()
 	for key, client := range xc.clients {
-		// error just ignore it.
 		_ = client.Close()
 		delete(xc.clients, key)
 	}
@@ -62,7 +61,6 @@ func (xc *XClient) call(rpcAddr string, ctx context.Context, serviceMethod strin
 	return client.Call(ctx, serviceMethod, args, reply)
 }
 
-// Call invokes the named function, waits for it to complete,
 func (xc *XClient) Call(ctx context.Context, serviceMethod string, args, reply interface{}) error {
 	rpcAddr, err := xc.d.Get(xc.mode)
 	if err != nil {
@@ -71,7 +69,6 @@ func (xc *XClient) Call(ctx context.Context, serviceMethod string, args, reply i
 	return xc.call(rpcAddr, ctx, serviceMethod, args, reply)
 }
 
-// Broadcast invokes the named function for every server registered in discovery
 func (xc *XClient) Broadcast(ctx context.Context, serviceMethod string, args, reply interface{}) error {
 	servers, err := xc.d.GetAll()
 	if err != nil {

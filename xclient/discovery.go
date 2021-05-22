@@ -24,20 +24,17 @@ type Discovery interface {
 
 var _ Discovery = (*MultiServersDiscovery)(nil)
 
-// MultiServersDiscovery is a discovery for multi servers without a registry center
 type MultiServersDiscovery struct {
-	r       *rand.Rand   // generate random number
-	mu      sync.RWMutex // protect following
+	r       *rand.Rand
+	mu      sync.RWMutex
 	servers []string
-	index   int // record the selected position for robin algorithm
+	index   int
 }
 
-// Refresh doesn't make sense for MultiServersDiscovery, so ignore it
 func (d *MultiServersDiscovery) Refresh() error {
 	return nil
 }
 
-// Update the servers of discovery dynamically if needed
 func (d *MultiServersDiscovery) Update(servers []string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -45,7 +42,6 @@ func (d *MultiServersDiscovery) Update(servers []string) error {
 	return nil
 }
 
-// Get a server according to mode
 func (d *MultiServersDiscovery) Get(mode SelectMode) (string, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -57,7 +53,7 @@ func (d *MultiServersDiscovery) Get(mode SelectMode) (string, error) {
 	case RandomSelect:
 		return d.servers[d.r.Intn(n)], nil
 	case RoundRobinSelect:
-		s := d.servers[d.index%n] // servers could be updated, so mode n to ensure safety
+		s := d.servers[d.index%n]
 		d.index = (d.index + 1) % n
 		return s, nil
 	default:
@@ -65,17 +61,14 @@ func (d *MultiServersDiscovery) Get(mode SelectMode) (string, error) {
 	}
 }
 
-// returns all servers in discovery
 func (d *MultiServersDiscovery) GetAll() ([]string, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
-	// return a copy of d.servers
 	servers := make([]string, len(d.servers), len(d.servers))
 	copy(servers, d.servers)
 	return servers, nil
 }
 
-// NewMultiServerDiscovery creates a MultiServersDiscovery instance
 func NewMultiServerDiscovery(servers []string) *MultiServersDiscovery {
 	d := &MultiServersDiscovery{
 		servers: servers,
