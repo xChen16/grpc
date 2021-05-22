@@ -1,4 +1,4 @@
-package geerpc
+package grpc
 
 import (
 	"context"
@@ -71,7 +71,7 @@ func TestClient_Call(t *testing.T) {
 func TestXDial(t *testing.T) {
 	if runtime.GOOS == "linux" {
 		ch := make(chan struct{})
-		addr := "/tmp/geerpc.sock"
+		addr := "/tmp/grpc.sock"
 		go func() {
 			_ = os.Remove(addr)
 			l, err := net.Listen("unix", addr)
